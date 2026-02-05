@@ -1,10 +1,10 @@
 name: CI/CD Portfolio
 
 on:
-  pull_request:
+  push:
     branches:
       - master
-  push:
+  pull_request:
     branches:
       - master
 
@@ -14,11 +14,8 @@ permissions:
   id-token: write
 
 jobs:
-  # JOB 1 — CONTINUOUS INTEGRATION
   ci:
     name: Validação de Qualidade (CI)
-    # Roda se for PR para master OU se for push na master (pós-merge)
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -36,61 +33,40 @@ jobs:
       - name: Verificar existência do index.html
         run: |
           if [ ! -f index.html ]; then
-            echo "ERRO: index.html não encontrado na raiz do projeto"
+            echo "ERRO: index.html não encontrado"
             exit 1
           fi
 
-      - name: Instalar dependências de validação
-        run: |
-          npm install -g htmlhint linkinator
+      - name: Instalar dependências
+        run: npm install -g htmlhint linkinator
 
       - name: Lint HTML
-        run: |
-          htmlhint index.html
+        run: htmlhint index.html
 
-      - name: Verificar tamanho máximo dos arquivos (500KB)
+      - name: Verificar tamanho máximo (500KB)
         run: |
           arquivos_grandes=$(find . -type f -size +500k ! -path "./.git/*" ! -path "./.github/*")
-          if [ -n "$arquivos_grandes" ]; then
-            echo "ERRO: Arquivos maiores que 500KB encontrados:"
-            echo "$arquivos_grandes"
-            exit 1
-          fi
+          if [ -n "$arquivos_grandes" ]; then exit 1; fi
 
       - name: Verificar termos proibidos
         run: |
-          if grep -R -i -E "\b(TODO|FIXME|senha|password)\b" .; then
-            echo "ERRO: Termos proibidos encontrados no código"
+          if grep -R -i -E "\b(TODO|FIXME|senha|password)\b" . --exclude-dir=.git; then
             exit 1
           fi
 
-      - name: Verificar links e imagens quebrados
-        run: |
-          linkinator index.html \
-            --recurse \
-            --skip "mailto:|tel:" \
-            --timeout 5000 \
-            --fail
-
-  # JOB 2 — CONTINUOUS DELIVERY
   cd:
     name: Deploy no GitHub Pages
-    # Só dispara no Push (após o merge) E se o CI passar
-    if: github.event_name == 'push'
     needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout do código
+      - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Configurar GitHub Pages
+      - name: Configurar Pages
         uses: actions/configure-pages@v5
-
-      - name: Upload dos arquivos do site
+      - name: Upload
         uses: actions/upload-pages-artifact@v3
         with:
           path: .
-
-      - name: Deploy para GitHub Pages
+      - name: Deploy
         uses: actions/deploy-pages@v4

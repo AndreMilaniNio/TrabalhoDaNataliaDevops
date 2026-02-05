@@ -1,0 +1,95 @@
+name: CI/CD Portfolio
+
+on:
+  pull_request:
+    branches:
+      - master
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  # JOB 1 — CONTINUOUS INTEGRATION
+  ci:
+    name: Validação de Qualidade (CI)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18, 20]
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Verificar existência do index.html
+        run: |
+          if [ ! -f index.html ]; then
+            echo "ERRO: index.html não encontrado na raiz do projeto"
+            exit 1
+          fi
+
+      - name: Instalar dependências de validação
+        run: |
+          npm install -g htmlhint linkinator
+
+      - name: Lint HTML
+        run: |
+          htmlhint index.html
+
+      - name: Verificar tamanho máximo dos arquivos (500KB)
+        run: |
+          arquivos_grandes=$(find . -type f -size +500k ! -path "./.git/*" ! -path "./.github/*")
+          if [ -n "$arquivos_grandes" ]; then
+            echo "ERRO: Arquivos maiores que 500KB encontrados:"
+            echo "$arquivos_grandes"
+            exit 1
+          fi
+
+      - name: Verificar termos proibidos
+        run: |
+          if grep -R -i -E "\b(TODO|FIXME|senha|password)\b" .; then
+            echo "ERRO: Termos proibidos encontrados no código"
+            exit 1
+          fi
+
+      - name: Verificar links e imagens quebrados
+        run: |
+          linkinator index.html \
+            --recurse \
+            --skip "mailto:|tel:" \
+            --timeout 5000 \
+            --fail
+
+  # JOB 2 — CONTINUOUS DELIVERY
+  cd:
+    name: Deploy no GitHub Pages
+    if: github.event_name == 'push'
+    needs: ci
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Configurar GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload dos arquivos do site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: Deploy para GitHub Pages
+        uses: actions/deploy-pages@v4

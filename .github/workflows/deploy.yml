@@ -14,12 +14,16 @@ permissions:
   id-token: write
 
 jobs:
+  # JOB 1 — CONTINUOUS INTEGRATION
   ci:
     name: Validação de Qualidade (CI)
+    # Garante que rode no PR (Etapa 1) e no Push para a master (Etapa 2)
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
+
     strategy:
       matrix:
-        node-version: [18, 20]
+        node-version: [18, 20] # Etapa 5: Matrix Strategy
 
     steps:
       - name: Checkout do código
@@ -33,11 +37,11 @@ jobs:
       - name: Verificar existência do index.html
         run: |
           if [ ! -f index.html ]; then
-            echo "ERRO: index.html não encontrado"
+            echo "ERRO: index.html não encontrado na raiz"
             exit 1
           fi
 
-      - name: Instalar dependências
+      - name: Instalar dependências de validação
         run: npm install -g htmlhint linkinator
 
       - name: Lint HTML
@@ -46,27 +50,44 @@ jobs:
       - name: Verificar tamanho máximo (500KB)
         run: |
           arquivos_grandes=$(find . -type f -size +500k ! -path "./.git/*" ! -path "./.github/*")
-          if [ -n "$arquivos_grandes" ]; then exit 1; fi
-
-      - name: Verificar termos proibidos
-        run: |
-          if grep -R -i -E "\b(TODO|FIXME|senha|password)\b" . --exclude-dir=.git; then
+          if [ -n "$arquivos_grandes" ]; then
+            echo "ERRO: Arquivos muito grandes encontrados."
             exit 1
           fi
 
+      - name: Verificar termos proibidos
+        # O ajuste principal está aqui: --exclude-dir=.github
+        run: |
+          if grep -R -i -E "\b(TODO|FIXME|senha|password)\b" . --exclude-dir=.git --exclude-dir=.github; then
+            echo "ERRO: Termos proibidos encontrados no código fonte"
+            exit 1
+          fi
+
+      - name: Verificar links e imagens
+        run: |
+          linkinator index.html --recurse --skip "mailto:|tel:" --timeout 5000 --fail
+
+  # JOB 2 — CONTINUOUS DELIVERY
   cd:
     name: Deploy no GitHub Pages
     needs: ci
+    # Só faz o deploy se for um Push na master e o CI passar
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout
+      - name: Checkout do código
         uses: actions/checkout@v4
-      - name: Configurar Pages
+
+      - name: Configurar GitHub Pages
         uses: actions/configure-pages@v5
-      - name: Upload
+
+      - name: Upload dos arquivos
         uses: actions/upload-pages-artifact@v3
         with:
           path: .
-      - name: Deploy
+
+      - name: Deploy para GitHub Pages
         uses: actions/deploy-pages@v4
+        # Etapa 4: Notificação simples em caso de falha no deploy
+        continue-on-error: false
